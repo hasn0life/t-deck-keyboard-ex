@@ -6,6 +6,9 @@ This repo adds the following features to the keyboard microcontroller in the [Li
  - alt and right shift = toggle capslock
  - left shift and sym = toggle symlock
 	 - space key produces space under sym/symlock
+ - holding sym lets you type symbols continuously
+ - long pressing a printable key lets you type a symbol
+ - long pressing the backspace key lets you continuously erase
 
 It's based on the [firmware Lilygo provides](https://github.com/Xinyuan-LilyGO/T-Deck/blob/master/examples/Keyboard_ESP32C3/Keyboard_ESP32C3.ino) and incorporates features from the [bbq20kbd](https://www.solder.party/docs/bbq20kbd/leaflet_bbq20kbd.png), while keeping the original protocol compatible (for now?)
 
