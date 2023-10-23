@@ -5,11 +5,11 @@
  * @copyright Copyright (c) 2023  Shenzhen Xin Yuan Electronic Technology Co., Ltd
  * @date      2023-04-11
  *
- * modifed by hasn0life 2023-10-18
+ * modifed by hasn0life 2023-10-23
  */
 
 #define I2C_DEV_ADDR 0x55
-#define keyborad_BL_PIN  9
+#define keyboard_BL_PIN  9
 #define KB_SDA  2
 #define KB_SCL  10
 #include "Wire.h"
@@ -34,22 +34,28 @@ bool capslock = false;
 bool symlock = false;
 bool numlock = false;
 
+enum longpress_state {NO_KEY, WAITING, PRESSED, PRINTED};
+enum longpress_state long_pressed = NO_KEY;
+uint32_t last_time = 0;
+const uint32_t LONGPRESS_DURATION = 400;
+
+
 void onRequest();
 void readMatrix();
 bool keyPressed(int colIndex, int rowIndex);
 bool keyActive(int colIndex, int rowIndex);
 bool isPrintableKey(int colIndex, int rowIndex);
 void printMatrix();
-void set_keyborad_BL(bool state);
+void set_keyboard_BL(bool state);
 
 void setup()
 {
     // put your setup code here, to run once:
     keyboard[0][0] = 'q';
     keyboard[0][1] = 'w';
-    keyboard[0][2] = NULL; // symbol
+    keyboard[0][2] = 0; // symbol
     keyboard[0][3] = 'a';
-    keyboard[0][4] = NULL; // ALT
+    keyboard[0][4] = 0; // ALT
     keyboard[0][5] = ' ';
     keyboard[0][6] = '~'; // Mic
 
@@ -59,12 +65,12 @@ void setup()
     keyboard[1][3] = 'p';
     keyboard[1][4] = 'x';
     keyboard[1][5] = 'z';
-    keyboard[1][6] = NULL; // Left Shift
+    keyboard[1][6] = 0; // Left Shift
 
     keyboard[2][0] = 'r';
     keyboard[2][1] = 'g';
     keyboard[2][2] = 't';
-    keyboard[2][3] = NULL; // Right Shit
+    keyboard[2][3] = 0; // Right Shit
     keyboard[2][4] = 'v';
     keyboard[2][5] = 'c';
     keyboard[2][6] = 'f';
@@ -72,7 +78,7 @@ void setup()
     keyboard[3][0] = 'u';
     keyboard[3][1] = 'h';
     keyboard[3][2] = 'y';
-    keyboard[3][3] = NULL; // Enter
+    keyboard[3][3] = 0; // Enter
     keyboard[3][4] = 'b';
     keyboard[3][5] = 'n';
     keyboard[3][6] = 'j';
@@ -80,16 +86,16 @@ void setup()
     keyboard[4][0] = 'o';
     keyboard[4][1] = 'l';
     keyboard[4][2] = 'i';
-    keyboard[4][3] = NULL; // Backspace
+    keyboard[4][3] = 0; // Backspace
     keyboard[4][4] = '$';  // speaker
     keyboard[4][5] = 'm';
     keyboard[4][6] = 'k';
 
     keyboard_symbol[0][0] = '#';
     keyboard_symbol[0][1] = '1';
-    keyboard_symbol[0][2] = NULL; // symbol
+    keyboard_symbol[0][2] = 0; // symbol
     keyboard_symbol[0][3] = '*';
-    keyboard_symbol[0][4] = NULL; // ALT
+    keyboard_symbol[0][4] = 0; // ALT
     keyboard_symbol[0][5] = ' ';
     keyboard_symbol[0][6] = '0';  // Mic
 
@@ -99,12 +105,12 @@ void setup()
     keyboard_symbol[1][3] = '@';
     keyboard_symbol[1][4] = '8';
     keyboard_symbol[1][5] = '7';
-    keyboard_symbol[1][6] = NULL; //lshift
+    keyboard_symbol[1][6] = 0; //lshift
 
     keyboard_symbol[2][0] = '3';
     keyboard_symbol[2][1] = '/';
     keyboard_symbol[2][2] = '(';
-    keyboard_symbol[2][3] = NULL; //rshift
+    keyboard_symbol[2][3] = 0; //rshift
     keyboard_symbol[2][4] = '?';
     keyboard_symbol[2][5] = '9';
     keyboard_symbol[2][6] = '6';
@@ -112,7 +118,7 @@ void setup()
     keyboard_symbol[3][0] = '_';
     keyboard_symbol[3][1] = ':';
     keyboard_symbol[3][2] = ')';
-    keyboard_symbol[3][3] = NULL;  //enter
+    keyboard_symbol[3][3] = 0;  //enter
     keyboard_symbol[3][4] = '!';
     keyboard_symbol[3][5] = ',';
     keyboard_symbol[3][6] = ';';
@@ -120,7 +126,7 @@ void setup()
     keyboard_symbol[4][0] = '+';
     keyboard_symbol[4][1] = '"';
     keyboard_symbol[4][2] = '-';
-    keyboard_symbol[4][3] = NULL; //backspace
+    keyboard_symbol[4][3] = 0; //backspace
     keyboard_symbol[4][4] = '\\'; // speaker now makes forward slash
     keyboard_symbol[4][5] = '.';
     keyboard_symbol[4][6] = '\'';
@@ -133,8 +139,8 @@ void setup()
     // Wire.begin((uint8_t)I2C_DEV_ADDR, SDA, SCL);
 
     Serial.println("Starting keyboard!");
-    pinMode(keyborad_BL_PIN, OUTPUT);
-    digitalWrite(keyborad_BL_PIN, BL_state);
+    pinMode(keyboard_BL_PIN, OUTPUT);
+    digitalWrite(keyboard_BL_PIN, BL_state);
 
 
     Serial.println("4");
@@ -149,6 +155,7 @@ void setup()
     }
 
     symbolSelected = false;
+
 }
 
 void loop()
@@ -163,21 +170,27 @@ void loop()
     }
 
     // key 3,3 is the enter key
-    if (keyPressed(3, 3)) {
+    if (keyReleased(3, 3)) {
         Serial.println();
         comdata = (char)0x0D;
         comdata_flag = true;
     }
-    if (keyPressed(4, 3)) {
+    if (keyReleased(4, 3) || (keyActive(4, 3) && (long_pressed == PRESSED))) { 
         Serial.println("backspace");
         comdata = (char)0x08;
         comdata_flag = true;
     }
+
+    //state transition backspace long press at key release
+    if (keyReleased(4, 3) && (long_pressed == PRESSED)){
+      long_pressed = NO_KEY;
+    }
+
     if (keyActive(0, 4) && keyPressed(3, 4)) { //Alt+B
 
         Serial.println("Alt+B");
         BL_state = !BL_state;
-        set_keyborad_BL(BL_state);
+        set_keyboard_BL(BL_state);
     }
     if (keyActive(0, 4) && keyPressed(2, 5)) { //Alt+C
         Serial.println("Alt+C");
@@ -221,7 +234,6 @@ void onRequest()
         Serial.println(comdata);
     } else {
         Wire.print((char)0x00);
-        //Wire.print(NULL);
     }
 
     // Serial.println("onRequest");
@@ -246,10 +258,27 @@ void readMatrix()
             bool buttonPressed = (digitalRead(rowCol) == LOW);
 
             keys[colIndex][rowIndex] = buttonPressed;
+
             if ((lastValue[colIndex][rowIndex] != buttonPressed)) {
                 changedValue[colIndex][rowIndex] = true;
             } else {
                 changedValue[colIndex][rowIndex] = false;
+            }
+
+            if(buttonPressed && changedValue[colIndex][rowIndex]){
+              if(isPrintableKey(colIndex, rowIndex) || keyActive(4, 3)){  //backspace is longpressable
+                last_time = millis();
+                long_pressed = WAITING;
+              }
+            }
+
+            if(buttonPressed && (long_pressed == WAITING)){
+              if(isPrintableKey(colIndex, rowIndex) || keyActive(4, 3)){ //backspace is longpressable
+                if((last_time + LONGPRESS_DURATION) < millis()){
+                  long_pressed = PRESSED;
+                  Serial.println("long pressed!!!");
+                }
+              }
             }
 
             lastValue[colIndex][rowIndex] = buttonPressed;
@@ -270,15 +299,20 @@ bool keyActive(int colIndex, int rowIndex)
     return keys[colIndex][rowIndex] == true;
 }
 
+bool keyReleased(int colIndex, int rowIndex)
+{
+    return changedValue[colIndex][rowIndex] && keys[colIndex][rowIndex] == false;
+}
+
 bool isPrintableKey(int colIndex, int rowIndex)
 {
-    return keyboard_symbol[colIndex][rowIndex] != NULL || keyboard[colIndex][rowIndex] != NULL;
+    return keyboard_symbol[colIndex][rowIndex] != 0 || keyboard[colIndex][rowIndex] != 0;
 }
 
 // Keyboard backlit status
-void set_keyborad_BL(bool state)
+void set_keyboard_BL(bool state)
 {
-    digitalWrite(keyborad_BL_PIN, state);
+    digitalWrite(keyboard_BL_PIN, state);
 }
 
 void printMatrix()
@@ -286,13 +320,19 @@ void printMatrix()
     for (int rowIndex = 0; rowIndex < rowCount; rowIndex++) {
         for (int colIndex = 0; colIndex < colCount; colIndex++) {
             // we only want to print if the key is pressed and it is a printable character
-            if (keyPressed(colIndex, rowIndex) && isPrintableKey(colIndex, rowIndex)) {
+              if ((keyReleased(colIndex, rowIndex) && isPrintableKey(colIndex, rowIndex) ) || (keyActive(colIndex, rowIndex) && (long_pressed == PRESSED))) { //wait for key to be released so we can possibly long press it
                 char toPrint;
-                if (symbolSelected || symlock) {
+                if (symbolSelected || symlock || keyActive(0, 2) 
+                || ((long_pressed == PRESSED) && !keyActive(4, 3))) {  //dont move through backspace
                     symbolSelected = false;
+                    long_pressed = PRINTED;
                     toPrint = char(keyboard_symbol[colIndex][rowIndex]);
                 } else {
+                  if(long_pressed == PRINTED){
+                    long_pressed = NO_KEY;
+                  }else{
                     toPrint = char(keyboard[colIndex][rowIndex]);
+                  }
                 }
 
                 // keys 1,6 and 2,3 are Shift keys, so we want to upper case
